@@ -16,6 +16,8 @@
  *   Ben-Ami Yassour <benami@il.ibm.com>
  */
 
+#include "tyche.h"
+
 #include <linux/kvm_host.h>
 #include "irq.h"
 #include "ioapic.h"
@@ -8093,6 +8095,10 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	ret = -KVM_ENOSYS;
 
 	switch (nr) {
+    // NOTE: Custom Tyche hypercall
+    case 0x42:
+        tyche_handle_hypercall(vcpu);
+        break;
 	case KVM_HC_VAPIC_POLL_IRQ:
 		ret = 0;
 		break;

@@ -13,6 +13,8 @@
  *   Yaniv Kamay  <yaniv@qumranet.com>
  */
 
+#include "tyche.h"
+
 #include <linux/highmem.h>
 #include <linux/hrtimer.h>
 #include <linux/kernel.h>
@@ -4761,6 +4763,21 @@ static inline bool guest_inject_ac(struct kvm_vcpu *vcpu)
 	       (kvm_get_rflags(vcpu) & X86_EFLAGS_AC);
 }
 
+static int __attribute__((optimize("O0"))) tyche_catch(
+        struct kvm_vcpu *vcpu, u32 intr_info
+) {
+    if ((tyche_hypercall_count > 0) && is_exception_n(intr_info, DE_VECTOR)) {
+        // NOTE: a nice place to put a breakpoint :)
+        int info = intr_info;
+        printk(KERN_NOTICE "[TYCHE] CATCH: vectoring info: 0x%08x\n", info);
+
+        // Update %rip and resume execution
+        skip_emulated_instruction(vcpu);
+        return 1;
+    }
+    return 0;
+}
+
 static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -4771,6 +4788,8 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 
 	vect_info = vmx->idt_vectoring_info;
 	intr_info = vmx_get_intr_info(vcpu);
+
+    if (tyche_catch(vcpu, intr_info)) return 1; // Resume execution if catched
 
 	if (is_machine_check(intr_info) || is_nmi(intr_info))
 		return 1; /* handled by handle_exception_nmi_irqoff() */
@@ -6965,6 +6984,7 @@ free_vpid:
 
 static int vmx_vm_init(struct kvm *kvm)
 {
+    tyche_vmx_init();
 	spin_lock_init(&to_kvm_vmx(kvm)->ept_pointer_lock);
 
 	if (!ple_gap)

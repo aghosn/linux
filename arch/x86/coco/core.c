@@ -16,6 +16,7 @@
 #include <asm/archrandom.h>
 #include <asm/coco.h>
 #include <asm/processor.h>
+#include <asm/cpuid.h>
 
 enum cc_vendor cc_vendor __ro_after_init = CC_VENDOR_NONE;
 SYM_PIC_ALIAS(cc_vendor);
@@ -31,6 +32,23 @@ static bool noinstr intel_cc_platform_has(enum cc_attr attr)
 {
 	switch (attr) {
 	case CC_ATTR_GUEST_UNROLL_STRING_IO:
+	case CC_ATTR_GUEST_MEM_ENCRYPT:
+	case CC_ATTR_MEM_ENCRYPT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+/*
+ * Themis capability hypervisor: VTOM-based confidential computing.
+ * Memory encryption is enforced by the capavisor via EPT isolation,
+ * not by hardware encryption.  The VTOM bit splits the GPA space
+ * into private (below VTOM) and shared (above VTOM) windows.
+ */
+static bool noinstr themis_cc_platform_has(enum cc_attr attr)
+{
+	switch (attr) {
 	case CC_ATTR_GUEST_MEM_ENCRYPT:
 	case CC_ATTR_MEM_ENCRYPT:
 		return true;
@@ -122,6 +140,8 @@ bool noinstr cc_platform_has(enum cc_attr attr)
 		return amd_cc_platform_has(attr);
 	case CC_VENDOR_INTEL:
 		return intel_cc_platform_has(attr);
+	case CC_VENDOR_THEMIS:
+		return themis_cc_platform_has(attr);
 	default:
 		return false;
 	}
@@ -144,6 +164,7 @@ u64 cc_mkenc(u64 val)
 		else
 			return val | cc_mask;
 	case CC_VENDOR_INTEL:
+	case CC_VENDOR_THEMIS:
 		return val & ~cc_mask;
 	default:
 		return val;
@@ -160,6 +181,7 @@ u64 cc_mkdec(u64 val)
 		else
 			return val & ~cc_mask;
 	case CC_VENDOR_INTEL:
+	case CC_VENDOR_THEMIS:
 		return val | cc_mask;
 	default:
 		return val;
@@ -246,4 +268,42 @@ __init void cc_random_init(void)
 	}
 	add_device_randomness(rng_seed, sizeof(rng_seed));
 	memzero_explicit(rng_seed, sizeof(rng_seed));
+}
+
+/*
+ * Themis capavisor detection via CPUID leaf 0x40000100.
+ *
+ * The capavisor returns:
+ *   EAX: VTOM bit position (e.g., 39)
+ *   EBX:ECX:EDX: "ThemisCoCo\0\0" signature (little-endian)
+ *
+ * Called from setup_arch() before mem_encrypt_setup_arch().
+ */
+#define THEMIS_CPUID_LEAF	0x40000100
+#define THEMIS_SIG_EBX		0x6d656854	/* "Them" */
+#define THEMIS_SIG_ECX		0x6f437369	/* "isCo" */
+#define THEMIS_SIG_EDX		0x00006f43	/* "Co\0\0" */
+
+void __init themis_coco_init(void)
+{
+	u32 eax, ebx, ecx, edx;
+
+	if (cc_vendor != CC_VENDOR_NONE)
+		return;
+
+	cpuid(THEMIS_CPUID_LEAF, &eax, &ebx, &ecx, &edx);
+
+	if (ebx != THEMIS_SIG_EBX || ecx != THEMIS_SIG_ECX ||
+	    edx != THEMIS_SIG_EDX)
+		return;
+
+	if (eax == 0 || eax > 51) {
+		pr_warn("Themis: invalid VTOM bit %u, ignoring\n", eax);
+		return;
+	}
+
+	cc_vendor = CC_VENDOR_THEMIS;
+	cc_set_mask(1ULL << eax);
+
+	pr_info("Themis CoCo: VTOM bit %u, shared mask %#llx\n", eax, cc_mask);
 }

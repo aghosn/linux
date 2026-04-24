@@ -9,6 +9,7 @@ enum cc_vendor {
 	CC_VENDOR_NONE,
 	CC_VENDOR_AMD,
 	CC_VENDOR_INTEL,
+	CC_VENDOR_THEMIS,
 };
 
 #ifdef CONFIG_ARCH_HAS_CC_PLATFORM
@@ -28,6 +29,7 @@ static inline void cc_set_mask(u64 mask)
 u64 cc_mkenc(u64 val);
 u64 cc_mkdec(u64 val);
 void cc_random_init(void);
+void themis_coco_init(void);
 #else
 #define cc_vendor (CC_VENDOR_NONE)
 static inline u64 cc_get_mask(void)
@@ -45,6 +47,7 @@ static inline u64 cc_mkdec(u64 val)
 	return val;
 }
 static inline void cc_random_init(void) { }
+static inline void themis_coco_init(void) { }
 #endif
 
 #endif /* _ASM_X86_COCO_H */

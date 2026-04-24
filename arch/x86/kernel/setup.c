@@ -1084,6 +1084,7 @@ void __init setup_arch(char **cmdline_p)
 	 * Needs to run after memblock setup because it needs the physical
 	 * memory size.
 	 */
+	themis_coco_init();
 	mem_encrypt_setup_arch();
 	cc_random_init();
 

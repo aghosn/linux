@@ -40,6 +40,7 @@ static bool noinstr intel_cc_platform_has(enum cc_attr attr)
 	}
 }
 
+#ifdef CONFIG_THEMIS_COCO
 /*
  * Themis capability hypervisor: VTOM-based confidential computing.
  * Memory encryption is enforced by the capavisor via EPT isolation,
@@ -56,6 +57,7 @@ static bool noinstr themis_cc_platform_has(enum cc_attr attr)
 		return false;
 	}
 }
+#endif /* CONFIG_THEMIS_COCO */
 
 /*
  * Handle the SEV-SNP vTOM case where sme_me_mask is zero, and
@@ -140,8 +142,10 @@ bool noinstr cc_platform_has(enum cc_attr attr)
 		return amd_cc_platform_has(attr);
 	case CC_VENDOR_INTEL:
 		return intel_cc_platform_has(attr);
+#ifdef CONFIG_THEMIS_COCO
 	case CC_VENDOR_THEMIS:
 		return themis_cc_platform_has(attr);
+#endif
 	default:
 		return false;
 	}
@@ -164,7 +168,9 @@ u64 cc_mkenc(u64 val)
 		else
 			return val | cc_mask;
 	case CC_VENDOR_INTEL:
+#ifdef CONFIG_THEMIS_COCO
 	case CC_VENDOR_THEMIS:
+#endif
 		return val & ~cc_mask;
 	default:
 		return val;
@@ -181,7 +187,9 @@ u64 cc_mkdec(u64 val)
 		else
 			return val & ~cc_mask;
 	case CC_VENDOR_INTEL:
+#ifdef CONFIG_THEMIS_COCO
 	case CC_VENDOR_THEMIS:
+#endif
 		return val | cc_mask;
 	default:
 		return val;
@@ -270,6 +278,7 @@ __init void cc_random_init(void)
 	memzero_explicit(rng_seed, sizeof(rng_seed));
 }
 
+#ifdef CONFIG_THEMIS_COCO
 /*
  * Themis capavisor detection via CPUID leaf 0x40000100.
  *
@@ -307,3 +316,4 @@ void __init themis_coco_init(void)
 
 	pr_info("Themis CoCo: VTOM bit %u, shared mask %#llx\n", eax, cc_mask);
 }
+#endif /* CONFIG_THEMIS_COCO */

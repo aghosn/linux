@@ -29,7 +29,11 @@ static inline void cc_set_mask(u64 mask)
 u64 cc_mkenc(u64 val);
 u64 cc_mkdec(u64 val);
 void cc_random_init(void);
+#ifdef CONFIG_THEMIS_COCO
 void themis_coco_init(void);
+#else
+static inline void themis_coco_init(void) { }
+#endif
 #else
 #define cc_vendor (CC_VENDOR_NONE)
 static inline u64 cc_get_mask(void)

@@ -36,6 +36,7 @@
 #include <asm/bugs.h>
 #include <asm/cacheinfo.h>
 #include <asm/coco.h>
+#include <asm/themis_platform.h>
 #include <asm/cpu.h>
 #include <asm/efi.h>
 #include <asm/gart.h>
@@ -1084,6 +1085,7 @@ void __init setup_arch(char **cmdline_p)
 	 * Needs to run after memblock setup because it needs the physical
 	 * memory size.
 	 */
+	themis_platform_init();
 	themis_coco_init();
 	mem_encrypt_setup_arch();
 	cc_random_init();

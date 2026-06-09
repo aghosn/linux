@@ -20,6 +20,11 @@
 #define VIRTIO_RING_NO_LEGACY
 #include "virtio_pci_common.h"
 
+#ifdef CONFIG_THEMIS_GUEST
+#include <asm/themis_hcall.h>
+#include <asm/themis_platform.h>
+#endif
+
 #define VIRTIO_AVQ_SGS_MAX	4
 
 static void vp_get_features(struct virtio_device *vdev, u64 *features)
@@ -682,6 +687,44 @@ static bool vp_notify_with_data(struct virtqueue *vq)
 	return true;
 }
 
+#ifdef CONFIG_THEMIS_GUEST
+/*
+ * Themis paravirt notify path: vq->priv stores the notify GPA (set by
+ * setup_vq) instead of an iomem pointer.  Instead of an MMIO write that
+ * would EPT-exit to the capavisor and require host-side instruction
+ * decode, we issue the THEMIS_RING_DOORBELL VMCALL.  The capavisor
+ * matches the GPA against the doorbell list the parent registered for
+ * this child and wakes the parent directly via the DomainComm RX ring.
+ *
+ * Gated on the feature bit, not on cc_vendor: this is a performance
+ * optimization independent of memory confidentiality.  Confidential
+ * guests need it for correctness (the capavisor cannot read guest
+ * instruction bytes), non-confidential guests benefit from skipping
+ * the parent-userspace decode round-trip.
+ */
+static inline bool themis_is_active(void)
+{
+	return themis_has_feature(THEMIS_FEATURE_DOORBELL_HYPERCALL);
+}
+
+static bool themis_vp_notify(struct virtqueue *vq)
+{
+	u64 gpa = (u64)(unsigned long)vq->priv;
+
+	(void)themis_ring_doorbell(gpa, vq->index);
+	return true;
+}
+
+static bool themis_vp_notify_with_data(struct virtqueue *vq)
+{
+	u64 gpa = (u64)(unsigned long)vq->priv;
+	u32 data = vring_notification_data(vq);
+
+	(void)themis_ring_doorbell(gpa, data);
+	return true;
+}
+#endif /* CONFIG_THEMIS_GUEST */
+
 static struct virtqueue *setup_vq(struct virtio_pci_device *vp_dev,
 				  struct virtio_pci_vq_info *info,
 				  unsigned int index,
@@ -698,10 +741,24 @@ static struct virtqueue *setup_vq(struct virtio_pci_device *vp_dev,
 	u16 num;
 	int err;
 
+#ifdef CONFIG_THEMIS_GUEST
+	info->themis_notify_iomem = NULL;
+#endif
+
 	if (__virtio_test_bit(&vp_dev->vdev, VIRTIO_F_NOTIFICATION_DATA))
 		notify = vp_notify_with_data;
 	else
 		notify = vp_notify;
+
+#ifdef CONFIG_THEMIS_GUEST
+	if (themis_is_active()) {
+		if (__virtio_test_bit(&vp_dev->vdev,
+				      VIRTIO_F_NOTIFICATION_DATA))
+			notify = themis_vp_notify_with_data;
+		else
+			notify = themis_vp_notify;
+	}
+#endif
 
 	is_avq = vp_is_avq(&vp_dev->vdev, index);
 	if (index >= vp_modern_get_num_queues(mdev) && !is_avq)
@@ -733,6 +790,37 @@ static struct virtqueue *setup_vq(struct virtio_pci_device *vp_dev,
 		err = -ENOMEM;
 		goto err;
 	}
+
+#ifdef CONFIG_THEMIS_GUEST
+	if (themis_is_active()) {
+		resource_size_t notify_pa = 0;
+		void __iomem *iomem;
+
+		/*
+		 * Re-resolve, this time asking for the physical address so we
+		 * can pass it to THEMIS_RING_DOORBELL.  The iomem mapping
+		 * returned here is the same one we just stored above; in
+		 * per-vq mapping mode (mdev->notify_base == NULL) it is a
+		 * fresh ioremap and we must tear it down in del_vq.
+		 */
+		iomem = vp_modern_map_vq_notify(mdev, index, &notify_pa);
+		if (!iomem || !notify_pa) {
+			err = -ENOMEM;
+			goto err;
+		}
+		if (!mdev->notify_base) {
+			/* Per-vq ioremap: keep it for cleanup, drop the
+			 * first one (an identical mapping) to avoid a leak.
+			 */
+			pci_iounmap(mdev->pci_dev,
+				    (void __force __iomem *)vq->priv);
+			info->themis_notify_iomem = iomem;
+		} else {
+			info->themis_notify_iomem = NULL;
+		}
+		vq->priv = (void *)(unsigned long)notify_pa;
+	}
+#endif
 
 	return vq;
 
@@ -772,6 +860,12 @@ static void del_vq(struct virtio_pci_vq_info *info)
 		vp_modern_queue_vector(mdev, vq->index,
 				       VIRTIO_MSI_NO_VECTOR);
 
+#ifdef CONFIG_THEMIS_GUEST
+	if (themis_is_active()) {
+		if (info->themis_notify_iomem)
+			pci_iounmap(mdev->pci_dev, info->themis_notify_iomem);
+	} else
+#endif
 	if (!mdev->notify_base)
 		pci_iounmap(mdev->pci_dev, (void __force __iomem *)vq->priv);
 

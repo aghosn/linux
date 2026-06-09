@@ -40,6 +40,17 @@ struct virtio_pci_vq_info {
 
 	/* MSI-X vector (or none) */
 	unsigned int msix_vector;
+
+#ifdef CONFIG_THEMIS_GUEST
+	/*
+	 * On Themis with THEMIS_FEATURE_DOORBELL_HYPERCALL set, vq->priv
+	 * holds the notify GPA (used by themis_vp_notify via
+	 * THEMIS_RING_DOORBELL VMCALL) instead of the iomem pointer.
+	 * Keep the iomem pointer here so del_vq can unmap it cleanly
+	 * when vp_modern_map_vq_notify did a per-vq ioremap.
+	 */
+	void __iomem *themis_notify_iomem;
+#endif
 };
 
 struct virtio_pci_admin_vq {

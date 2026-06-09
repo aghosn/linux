@@ -921,12 +921,33 @@ config INTEL_TDX_GUEST
 	  memory contents and CPU state. TDX guests are protected from
 	  some attacks from the VMM.
 
+config THEMIS_GUEST
+	bool "Themis Capability Hypervisor - Paravirtualized Guest Support"
+	depends on X86_64
+	default y if THEMIS_COCO
+	help
+	  Enable Themis-specific paravirtualizations for Linux guests
+	  running on the Themis capability hypervisor.  This is detected
+	  at boot via CPUID leaf 0x40000000 ("ThemisCapa") and the
+	  feature bitmap in EAX of leaf 0x40000001.
+
+	  Today this enables only the fast virtio notification path
+	  (THEMIS_RING_DOORBELL hypercall instead of MMIO writes); more
+	  hypercall-based features will be added over time.
+
+	  Independent of THEMIS_COCO: confidential guests need both, but
+	  non-confidential Themis guests can also opt in for the
+	  performance benefits.
+
+	  If unsure, say N.
+
 config THEMIS_COCO
 	bool "Themis Capability Hypervisor - Confidential Guest Support"
 	depends on X86_64
 	select ARCH_HAS_CC_PLATFORM
 	select X86_MEM_ENCRYPT
 	select SWIOTLB
+	select THEMIS_GUEST
 	help
 	  Support running as a confidential guest under the Themis
 	  capability hypervisor.  Themis enforces memory isolation via
